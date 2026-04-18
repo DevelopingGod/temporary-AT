@@ -1,0 +1,177 @@
+SET DaysBack TO 4
+SET Offset TO 0
+Variables.CreateNewList List=> AllReviews
+WebAutomation.LaunchEdge.LaunchEdge Url: $'''https://supplier.getyourguide.com/auth/login''' ClearCache: False ClearCookies: False WindowState: WebAutomation.BrowserWindowState.Maximized WaitForPageToLoadTimeout: 60 Timeout: 60 PiPUserDataFolderMode: WebAutomation.PiPUserDataFolderModeEnum.DefaultProfile TargetDesktop: $'''{\"DisplayName\":\"Local computer\",\"Route\":{\"ServerType\":\"Local\",\"ServerAddress\":\"\"},\"DesktopType\":\"local\"}''' BrowserInstance=> Browser
+WAIT 5
+Display.ShowMessageDialog.ShowMessage Title: $'''GYG Login Required''' Message: $'''Complete all login steps:\\n\\n1. Enter your email and password\\n2. Open Google Authenticator and type the 6-digit code\\n3. Wait until you can see the Reviews page with reviews visible\\n4. Click OK only when reviews are showing''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed
+WAIT 2
+Display.InputDialog Title: $'''Which Account?''' Message: $'''Enter the GYG account region you are running:\\n\\nUK / USA / EUR / MEX / JP''' InputType: Display.InputType.SingleLine IsTopMost: True UserInput=> AccountRegion ButtonPressed=> AccountButtonPressed
+WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() { try { var m = document.cookie.match(/supplier_id=([^;]+)/); return m ? m[1].trim() : \"45999\"; } catch(e) { return \"45999\"; } }''' Result=> SupplierId
+SET AuthToken TO $'''%''%'''
+Display.ShowMessageDialog.ShowMessage Title: $'''Capture Token''' Message: $'''To capture the security token automatically, please click on ANY filter on the Reviews page (e.g., change the Sort order, change the Date range, or click Next Page). 
+Do NOT refresh the page. Click OK here after you have clicked a filter and the reviews have loaded.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed3
+WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() {
+    var authToken = window.__authStore.token || \"\";
+    authToken = \"Bearer \" + authToken;
+    return authToken || \"\";
+}''' Result=> TempToken
+SET AuthToken TO TempToken
+IF $'''AuthToken''' = $'''%''%''' THEN
+    Display.ShowMessageDialog.ShowMessage Title: $'''Token not found''' Message: $'''Please make sure you clicked a filter or changed pages so the data reloaded. Try again.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed7
+END
+Display.ShowMessageDialog.ShowMessage Title: $'''The token length''' Message: AuthToken Icon: Display.Icon.None Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed8
+DateTime.GetCurrentDateTime.Local DateTimeFormat: DateTime.DateTimeFormat.DateOnly CurrentDateTime=> CurrentDateTime
+DateTime.Add DateTime: CurrentDateTime TimeToAdd: $'''-%DaysBack%''' TimeUnit: DateTime.TimeUnit.Days ResultedDate=> CutoffDate
+WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() { var months = [\"ENE\",\"FEB\",\"MAR\",\"ABR\",\"MAY\",\"JUN\",\"JUL\",\"AGO\",\"SEP\",\"OCT\",\"NOV\",\"DIC\"]; return months[new Date().getMonth()]; }''' Result=> MonthAbbrev
+WAIT 5
+Display.ShowMessageDialog.ShowMessage Title: $'''The month display''' Message: MonthAbbrev Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: True ButtonPressed=> ButtonPressed6
+SET TotalWritten TO 0
+Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: $'''C:\\AT-Reviews\\Viator_Reviews_2026.xlsm''' Visible: True ReadOnly: False UseMachineLocale: False Instance=> ExcelInstance
+LOOP LoopIndex FROM 0 TO 99 STEP 1
+    SET RequestBody TO $'''{\"operationName\":\"Reviews_ReviewSearch\",\"variables\":{\"input\":{\"supplierId\":%SupplierId%,\"limit\":50,\"offset\":%Offset%,\"sort\":{\"direction\":\"DESC\",\"field\":\"id\"},\"activityIds\":[]}},\"query\":\"query Reviews_ReviewSearch($input: SupplierReviewsInput!) { supplierReviews(input: $input) { reviews { activityStartDate bookingReference comment createdAt isAnonymous rating reviewId activity { sourceText { title } } author { countryName fullName } ratings { ratingType ratingValue } } } }\"}'''
+    Web.InvokeWebService.InvokeWebServicePost Url: $'''https://supplier.getyourguide.com/graphql''' Accept: $'''application/json''' ContentType: $'''application/json''' CustomHeaders: $'''Authorization: %AuthToken%
+apollographql-client-name: supplier-portal
+x-gyg-supplier-id: %SupplierId%''' RequestBody: RequestBody ConnectionTimeout: 30 FollowRedirection: True ClearCookies: False FailOnErrorStatus: False EncodeRequestBody: False UserAgent: $'''Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36''' Encoding: Web.Encoding.AutoDetect AcceptUntrustedCertificates: False TrimRequestBody: True ResponseHeaders=> WebServiceResponseHeaders Response=> WebServiceResponse StatusCode=> ResponseStatusCode
+    IF ResponseStatusCode <> 200 THEN
+        Display.ShowMessageDialog.ShowMessage Title: $'''API Error''' Message: $'''Token expired. Restart and paste a fresh token. Code: %ResponseStatusCode%''' Icon: Display.Icon.None Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed2
+        EXIT Code: 0 ErrorMessage: 0
+    END
+    Variables.ConvertJsonToCustomObject Json: WebServiceResponse CustomObject=> ApiResponse
+    SET ReviewsBatch TO ApiResponse['data']['supplierReviews']['reviews']
+    SET BatchSize TO ReviewsBatch.Count
+    SET BatchHitCutoff TO False
+    LOOP FOREACH Review IN ReviewsBatch
+        Text.ConvertTextToDateTime.ToDateTime Text: Review['createdAt'] DateTime=> ReviewDateTime
+        IF ReviewDateTime < CutoffDate THEN
+            SET BatchHitCutoff TO True
+            EXIT LOOP
+        ELSE
+            Text.ConvertDateTimeToText.FromDateTime DateTime: ReviewDateTime StandardFormat: Text.WellKnownDateTimeFormat.ShortDate Result=> ReviewDateShort
+            SET ReviewId TO Review['bookingReference']
+            SET RatingValue TO Review['rating']
+            SET CommentText TO Review['comment']
+            SET ActivityDate TO Review['activityStartDate']
+            SET TourTitle TO Review['activity']['sourceText']['title']
+            SET ReviewerName TO Review['author']['fullName']
+            IF ReviewerName = $'''GetYourGuide traveler''' THEN
+                SET ReviewerName TO $'''Anonymous'''
+            END
+            SET GuideRating TO $''''''
+            LOOP FOREACH RatingItem IN Review['ratings']
+                IF RatingItem['ratingType'] = $'''rating_guide''' THEN
+                    SET GuideRating TO RatingItem['ratingValue']
+                END
+            END
+            SET Calificacion TO RatingValue * 2
+            SET NPS TO $'''Detractor'''
+            IF RatingValue >= 5 THEN
+                SET NPS TO $'''Promotor'''
+            END
+            IF RatingValue >= 4 THEN
+                IF RatingValue < 5 THEN
+                    SET NPS TO $'''Pasivo'''
+                END
+            END
+            SET TipoServicio TO $'''Tour'''
+            IF Contains(TourTitle, $'''Ticket''', False) THEN
+                SET TipoServicio TO $'''Ticket'''
+            END
+            SET Destino TO $''''''
+            IF Contains(TourTitle, $'''London''', False) THEN
+                SET Destino TO $'''Londres'''
+            END
+            IF Contains(TourTitle, $'''Amsterdam''', False) THEN
+                SET Destino TO $'''AmsterDam'''
+            END
+            IF Contains(TourTitle, $'''Barcelona''', False) THEN
+                SET Destino TO $'''Barcelona'''
+            END
+            IF Contains(TourTitle, $'''Madrid''', False) THEN
+                SET Destino TO $'''Madrid'''
+            END
+            IF Contains(TourTitle, $'''Rome''', False) OR Contains(TourTitle, $'''Roma''', False) THEN
+                SET Destino TO $'''Roma'''
+            END
+            IF Contains(TourTitle, $'''Paris''', False) THEN
+                SET Destino TO $'''Paris'''
+            END
+            IF Contains(TourTitle, $'''Milan''', False) THEN
+                SET Destino TO $'''Milan'''
+            END
+            IF Contains(TourTitle, $'''New York''', False) THEN
+                SET Destino TO $'''Nueva York'''
+            END
+            IF Contains(TourTitle, $'''Granada''', False) THEN
+                SET Destino TO $'''Granada'''
+            END
+            IF Contains(TourTitle, $'''Seville''', False) OR Contains(TourTitle, $'''Sevilla''', False) THEN
+                SET Destino TO $'''Sevilla'''
+            END
+            IF Contains(TourTitle, $'''Florence''', False) OR Contains(TourTitle, $'''Firenze''', False) THEN
+                SET Destino TO $'''Florencia'''
+            END
+            IF Contains(TourTitle, $'''Venice''', False) OR Contains(TourTitle, $'''Venezia''', False) THEN
+                SET Destino TO $'''Venecia'''
+            END
+            IF Contains(TourTitle, $'''Tokyo''', False) THEN
+                SET Destino TO $'''Tokyo'''
+            END
+            IF Contains(TourTitle, $'''Kyoto''', False) THEN
+                SET Destino TO $'''Kyoto'''
+            END
+            IF Contains(TourTitle, $'''Osaka''', False) THEN
+                SET Destino TO $'''Osaka'''
+            END
+            IF Contains(TourTitle, $'''Cancun''', False) OR Contains(TourTitle, $'''Cancún''', False) THEN
+                SET Destino TO $'''Cancun'''
+            END
+            IF Contains(TourTitle, $'''Mexico City''', False) OR Contains(TourTitle, $'''Ciudad de Mexico''', False) OR Contains(TourTitle, $'''CDMX''', False) THEN
+                SET Destino TO $'''Ciudad de Mexico'''
+            END
+            SET SheetRegion TO $'''EUR_NY'''
+            IF Destino = $'''Cancun''' OR Destino = $'''Ciudad de Mexico''' THEN
+                SET SheetRegion TO $'''LATAM'''
+            END
+            IF Destino = $'''Tokyo''' OR Destino = $'''Kyoto''' OR Destino = $'''Osaka''' THEN
+                SET SheetRegion TO $'''JAP'''
+            END
+            SET TargetSheet TO $'''%MonthAbbrev%_%SheetRegion%'''
+            Excel.SetActiveWorksheet.ActivateWorksheetByName Instance: ExcelInstance Name: TargetSheet
+            Excel.InsertRow Instance: ExcelInstance Index: 2
+            SET ExcelRow TO 2
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''SI''' Column: $'''A''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''GetYourGuide''' Column: $'''B''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ReviewerName Column: $'''C''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ReviewId Column: $'''D''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Destino Column: $'''E''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: TipoServicio Column: $'''F''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: TourTitle Column: $'''G''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ReviewDateShort Column: $'''H''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ActivityDate Column: $'''I''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Calificacion Column: $'''J''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: RatingValue Column: $'''K''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''Tour''' Column: $'''L''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: CommentText Column: $'''Q''' Row: ExcelRow
+            Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: NPS Column: $'''R''' Row: ExcelRow
+            SET ExcelRow TO 2
+            SET TotalWritten TO TotalWritten + 1
+        END
+    END
+    IF BatchSize < 50 THEN
+        EXIT LOOP
+    END
+    IF BatchHitCutoff = True THEN
+        EXIT LOOP
+    END
+    SET Offset TO Offset + 50
+END
+Excel.SaveExcel.Save Instance: ExcelInstance
+IF TotalWritten = 0 THEN
+    Display.ShowMessageDialog.ShowMessage Title: $'''No New Reviews''' Message: $'''No new GYG reviews found in the last %DaysBack% days for account: %AccountRegion%
+Nothing was written to Excel.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed4
+ELSE
+    Display.ShowMessageDialog.ShowMessage Title: $'''Done!''' Message: $'''Account: %AccountRegion%
+Sheet month: %MonthAbbrev%
+Reviews written: %TotalWritten%
+All reviews saved to Excel successfully.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed5
+END

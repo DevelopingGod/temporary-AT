@@ -1,0 +1,52 @@
+<script type="text/javascript">
+	(function () {
+	  // Global store
+	  window.__authStore = {
+	    token: null,
+	    lastAuthHeader: null,
+	    history: []
+	  };
+	  function capture(authHeader) {
+	    if (!authHeader) return;
+	    if(window.__authStore.token) return;
+	    const token = authHeader.replace(/^Bearer\s+/i, '');
+	    window.__authStore.token = token;
+	    window.__authStore.lastAuthHeader = authHeader;
+	    window.__authStore.history.push({
+	      time: new Date().toISOString(),
+	      value: token
+	    });
+	    console.log("🔐 Token captured:", token);
+	  }
+	  const origFetch = window.fetch;
+	  window.fetch = function (...args) {
+	    try {
+	      const input = args[0];
+	      const init = args[1] || {};
+	      let auth = null;
+	      // Case 1: Request object
+	      if (input instanceof Request) {
+	        auth = input.headers.get('authorization');
+	      }
+	      // Case 2: init.headers
+	      if (!auth && init.headers) {
+	        const h = init.headers;
+	        if (h instanceof Headers) {
+	          auth = h.get('authorization');
+	        } else if (typeof h === 'object') {
+	          auth = h['Authorization'] || h['authorization'];
+	        }
+	      }
+	      if (auth) capture(auth);
+	    } catch (e) {
+	      console.warn("Interceptor error:", e);
+	    }
+	    return origFetch.apply(this, args);
+	  };
+	  // Helper for Power Automate
+	  window.getAuthToken = function () {
+	    return window.__authStore.token;
+	  };
+	  console.log("✅ Fetch interceptor installed");
+	})();
+</script>

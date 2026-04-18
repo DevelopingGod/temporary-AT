@@ -1,0 +1,485 @@
+SET DaysBack TO 1
+Display.SelectFromListDialog.SelectFromList Title: $'''Viator Supplier''' Message: $'''Which supplier account are you scraping?''' List: $'''LATAM — Amigo Tours (5885)
+UK — Amigo Tours UK (18521)
+Spain — Amigo Tours Spain (22869)
+Japan — Amigo Tours Japan (5522662)
+USA — Amigo Tours USA (62527)''' IsTopMost: False AllowEmpty: False SelectedItem=> SupplierChoice SelectedIndex=> SupplierIndex ButtonPressed=> ButtonPressed3
+SWITCH SupplierChoice
+    CASE = $'''LATAM — Amigo Tours (5885)'''
+        SET SheetRegion TO $'''LATAM'''
+    CASE = $'''UK — Amigo Tours UK (18521)'''
+        SET SheetRegion TO $'''EUR_NY'''
+    CASE = $'''Spain — Amigo Tours Spain (22869)'''
+        SET SheetRegion TO $'''EUR_NY'''
+    CASE = $'''Japan — Amigo Tours Japan (5522662)'''
+        SET SheetRegion TO $'''JAP'''
+    CASE = $'''USA — Amigo Tours USA (62527)'''
+        SET SheetRegion TO $'''EUR_NY'''
+END
+DateTime.GetCurrentDateTime.Local DateTimeFormat: DateTime.DateTimeFormat.DateAndTime CurrentDateTime=> CurrentDateTime
+SWITCH CurrentDateTime.Month
+    CASE = 1
+        SET MonthCode TO $'''ENE'''
+    CASE = 2
+        SET MonthCode TO $'''FEB'''
+    CASE = 3
+        SET MonthCode TO $'''MAR'''
+    CASE = 4
+        SET MonthCode TO $'''ABR'''
+    CASE = 5
+        SET MonthCode TO $'''MAY'''
+    CASE = 6
+        SET MonthCode TO $'''JUN'''
+    CASE = 7
+        SET MonthCode TO $'''JUL'''
+    CASE = 8
+        SET MonthCode TO $'''AGO'''
+    CASE = 9
+        SET MonthCode TO $'''SEP'''
+    CASE = 10
+        SET MonthCode TO $'''OCT'''
+    CASE = 11
+        SET MonthCode TO $'''NOV'''
+    CASE = 12
+        SET MonthCode TO $'''DIC'''
+END
+SET TargetSheet TO $'''%MonthCode%_%SheetRegion%'''
+WebAutomation.LaunchEdge.LaunchEdge Url: $'''https://supplier.viator.com/login''' ClearCache: False ClearCookies: False WindowState: WebAutomation.BrowserWindowState.Maximized WaitForPageToLoadTimeout: 60 Timeout: 60 PiPUserDataFolderMode: WebAutomation.PiPUserDataFolderModeEnum.AutomaticProfile TargetDesktop: $'''{\"DisplayName\":\"Local computer\",\"Route\":{\"ServerType\":\"Local\",\"ServerAddress\":\"\"},\"DesktopType\":\"local\"}''' BrowserInstance=> Browser
+Display.ShowMessageDialog.ShowMessage Title: $'''Viator Login Required''' Message: $'''Please log in with your Viator credentials.                     Complete any CAPTCHA if it appears.                     Navigate to the Reviews page.
+Click OK when you are on the Reviews page.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed
+WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() {
+    try {
+        var scripts = document.scripts;
+        var text = null;
+        for (var s = 0; s < scripts.length; s++) {
+            if (scripts[s].textContent.indexOf(\'__PRELOADED_STATE__\') > -1) {
+                text = scripts[s].textContent;
+                break;
+            }
+        }
+        if (!text) return \'ERROR: No script found\';
+
+        var marker = \'Object.assign(window,\';
+        var start = text.indexOf(marker) + marker.length;
+        while (text[start] === \' \' || text[start] === \'\\n\') start++;
+
+        var depth = 0, inStr = false, esc = false, end = -1;
+        for (var i = start; i < text.length; i++) {
+            var c = text[i];
+            if (esc)               { esc = false;  continue; }
+            if (c===\'\\\\\' && inStr) { esc = true;   continue; }
+            if (c===\'\"\')           { inStr=!inStr; continue; }
+            if (!inStr) {
+                if (c===\'{\') depth++;
+                else if (c===\'}\') { if (--depth===0) { end=i; break; } }
+            }
+        }
+        if (end === -1) return \'ERROR: JSON end not found\';
+
+        var outer      = JSON.parse(text.substring(start, end + 1));
+        var state      = outer.__PRELOADED_STATE__;
+        var mgmt       = state.pageStore.reviewsManagement;
+        var reviewsMap = state.entities.reviews;
+        var ids        = mgmt.reviewIds;
+
+        var cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - %DaysBack%);
+        var cutoffStr = cutoff.toISOString().substring(0, 10);
+
+        var reviews = [];
+        var reachedCutoff = false;
+
+        for (var i = 0; i < ids.length; i++) {
+            var r = reviewsMap[String(ids[i])];
+            if (!r) continue;
+            if (r.reviewDate < cutoffStr) { reachedCutoff = true; continue; }
+
+            var ratingVal    = Number(r.rating) || 0;
+            var title        = r.entityTitle || \'\';
+            var content      = r.reviewContent || r.reviewText || \'\';
+            var agencia      = (r.source === \'TRIPADVISOR\') ? \'TripAdvisor\' : \'Viator\';
+            var calificacion = ratingVal * 2;
+            var nps          = ratingVal >= 5 ? \'Promotor\' : (ratingVal >= 4 ? \'Pasivo\' : \'Detractor\');
+            var tipoServicio = (title.toLowerCase().indexOf(\'ticket\') > -1) ? \'Ticket\' : \'Tour\';
+            
+            var destinoMap = {
+    \'london\': \'Londres\',
+    \'amsterdam\': \'Ámsterdam\',
+    \'barcelona\': \'Barcelona\',
+    \'madrid\': \'Madrid\',
+    \'rome\': \'Roma\',
+    \'paris\': \'París\',
+    \'milan\': \'Milán\',
+    \'new york\': \'Nueva York\',
+    \'granada\': \'Granada\',
+    \'seville\': \'Sevilla\',
+    \'florence\': \'Florencia\',
+    \'venice\': \'Venecia\',
+    \'tokyo\': \'Tokyo\',
+    \'kyoto\': \'Kyoto\',
+    \'osaka\': \'Osaka\',
+    \'cancun\': \'Cancún\',
+    \'ciudad de mexico\': \'Ciudad de México\',
+    \'mexico city\': \'Ciudad de México\'
+};
+var destino = \'\';
+var titleLower = title.toLowerCase();
+for (var city in destinoMap) {
+    if (titleLower.indexOf(city) > -1) { destino = destinoMap[city]; break; }
+}
+if (!destino) {
+    var colonIdx = title.indexOf(\':\');
+    if (colonIdx > -1) destino = title.substring(0, colonIdx).trim();
+}
+
+
+            reviews.push({
+                id:            String(r.id),
+                productCode:   r.productCode || \'\',
+                entityTitle:   title,
+                agencia:       agencia,
+                rating:        ratingVal,
+                calificacion:  calificacion,
+                nps:           nps,
+                tipoServicio:  tipoServicio,
+                reviewDate:    r.reviewDate    || \'\',
+                reviewTitle:   r.reviewTitle   || \'\',
+                reviewContent: content,
+                reviewerName:  r.reviewerName  || \'Anonymous\',
+                areaCorrespondiente: \'Tour\',
+                destino: destino
+            });
+        }
+
+        return JSON.stringify({
+            pageCount:     mgmt.pageCount,
+            currentPage:   mgmt.currentPage,
+            reachedCutoff: (reviews.length === 0 && ids.length > 0) ? \'YES\' : \'NO\',
+            reviewCount:   reviews.length,
+            reviews:       reviews
+        });
+
+    } catch(e) {
+        return \'ERROR: \' + e.message;
+    }
+}
+''' Result=> JavaScriptResult
+Variables.ConvertJsonToCustomObject Json: JavaScriptResult CustomObject=> PageData
+SET TotalPages TO PageData['pageCount']
+SET CurrentPage TO 1
+Variables.CreateNewList List=> AllReviews
+LOOP LoopIndex FROM 1 TO TotalPages STEP 1
+    IF LoopIndex = 1 THEN
+        LOOP FOREACH CurrentReview IN PageData['reviews']
+            Variables.AddItemToList Item: CurrentReview List: AllReviews
+        END
+    END
+    IF PageData['reachedCutoff'] = $'''YES''' THEN
+        EXIT LOOP
+    END
+    IF LoopIndex > 1 THEN
+        WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() {
+    var store = document.getElementById(\'pad-review-store\');
+    if (store) store.value = \'\';
+
+    // Try aria-label first
+    var selectors = [
+        \'[aria-label=\"Next page\"]\',
+        \'[aria-label=\"Next\"]\',
+        \'[aria-label=\"next\"]\',
+        \'[aria-label=\"Go to next page\"]\',
+        \'[title=\"Next\"]\',
+        \'[title=\"Next page\"]\'
+    ];
+    for (var s = 0; s < selectors.length; s++) {
+        var el = document.querySelector(selectors[s]);
+        if (el) { el.click(); return \'clicked aria: \' + selectors[s]; }
+    }
+
+    // Try button/link with > text
+    var all = document.querySelectorAll(\'button, a, li, span\');
+    for (var i = 0; i < all.length; i++) {
+        var txt = (all[i].textContent || \'\').trim();
+        if (txt === \'>\' || txt === \'›\' || txt === \'\\u203a\') {
+            all[i].click();
+            return \'clicked text: [\' + txt + \']\';
+        }
+    }
+
+    // Return all button texts for debugging
+    var btns = document.querySelectorAll(\'button\');
+    var btnTexts = [];
+    for (var b = 0; b < btns.length; b++) {
+        var t = (btns[b].textContent || \'\').trim();
+        if (t) btnTexts.push(t);
+    }
+    return \'NOT FOUND. Buttons: \' + btnTexts.join(\' | \');
+}
+''' Result=> ClickResult
+        WAIT 5
+        WebAutomation.ExecuteJavascript BrowserInstance: Browser Javascript: $'''function ExecuteScript() {
+    try {
+        var cards = document.querySelectorAll(\'[class*=\"ReviewView__reviewView\"]\');
+        if (cards.length === 0) return \'ERROR: no review cards found\';
+
+        var cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - %DaysBack%);
+        var cutoffStr = cutoff.toISOString().substring(0, 10);
+
+        var reviews = [];
+        var reachedCutoff = false;
+
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+
+            // Review ID
+            var automation = card.getAttribute(\'data-automation\') || \'\';
+            var reviewId   = automation.replace(\'review-\', \'\');
+
+            // Date → convert \"Oct 8, 2025\" to \"2025-10-08\"
+            var dateEl   = card.querySelector(\'[class*=\"ReviewHeader__reviewDate\"]\');
+            var dateText = dateEl ? dateEl.textContent.trim() : \'\';
+            var reviewDate = \'\';
+            if (dateText) {
+                var d = new Date(dateText);
+                if (!isNaN(d.getTime())) {
+                    reviewDate = d.toISOString().substring(0, 10);
+                }
+            }
+
+            // Skip if older than cutoff
+            if (reviewDate && reviewDate < cutoffStr) {
+                reachedCutoff = true;
+                continue;
+            }
+
+            // Rating — count filled circles in the bubble rating container
+            var ratingContainer = card.querySelector(\'[class*=\"ratingBubbles\"]\');
+            var ratingVal = ratingContainer
+                ? ratingContainer.querySelectorAll(\'circle\').length
+                : 0;
+
+            // Source + Tour name — from entity line
+            var entityEl   = card.querySelector(\'[class*=\"ReviewHeader__reviewEntity\"]\');
+            var entityText = entityEl ? entityEl.textContent.trim() : \'\';
+            var source      = \'Viator\';
+            var entityTitle = entityText;
+            if (entityText.toLowerCase().indexOf(\'tripadvisor review:\') > -1) {
+                source      = \'TripAdvisor\';
+                entityTitle = entityText.replace(/tripadvisor review:\\s*/i, \'\');
+            } else if (entityText.toLowerCase().indexOf(\'viator review:\') > -1) {
+                entityTitle = entityText.replace(/viator review:\\s*/i, \'\');
+            }
+
+            // Reviewer name
+            var reviewerEl   = card.querySelector(\'[class*=\"ReviewerAvatar__reviewerAvatarName\"]\');
+            var reviewerName = reviewerEl ? reviewerEl.textContent.trim() : \'Anonymous\';
+
+            // Review title
+            var titleEl    = card.querySelector(\'[class*=\"ReviewHeader__reviewTitle\"]\');
+            var reviewTitle = titleEl ? titleEl.textContent.trim() : \'\';
+
+            // Review content — clone and strip hidden \"Show all\" span
+            var contentEl     = card.querySelector(\'[class*=\"ReviewView__reviewContent\"]\');
+            var reviewContent = \'\';
+            if (contentEl) {
+                var clone  = contentEl.cloneNode(true);
+                var hidden = clone.querySelectorAll(\'[style*=\"visibility: hidden\"]\');
+                for (var h = 0; h < hidden.length; h++) {
+                    hidden[h].parentNode.removeChild(hidden[h]);
+                }
+                reviewContent = clone.textContent.trim().replace(/\\s+/g, \' \');
+            }
+
+            // Calculated fields
+            var agencia      = (source === \'TripAdvisor\') ? \'TripAdvisor\' : \'Viator\';
+            var calificacion = ratingVal * 2;
+            var nps          = ratingVal >= 5 ? \'Promotor\'
+                             : ratingVal >= 4 ? \'Pasivo\'
+                             : \'Detractor\';
+            var tipoServicio = (entityTitle.toLowerCase().indexOf(\'ticket\') > -1)
+                             ? \'Ticket\' : \'Tour\';
+
+		var destinoMap = {
+    \'london\': \'Londres\',
+    \'amsterdam\': \'Ámsterdam\',
+    \'barcelona\': \'Barcelona\',
+    \'madrid\': \'Madrid\',
+    \'rome\': \'Roma\',
+    \'paris\': \'París\',
+    \'milan\': \'Milán\',
+    \'new york\': \'Nueva York\',
+    \'granada\': \'Granada\',
+    \'seville\': \'Sevilla\',
+    \'florence\': \'Florencia\',
+    \'venice\': \'Venecia\',
+    \'tokyo\': \'Tokyo\',
+    \'kyoto\': \'Kyoto\',
+    \'osaka\': \'Osaka\',
+    \'cancun\': \'Cancún\',
+    \'ciudad de mexico\': \'Ciudad de México\',
+    \'mexico city\': \'Ciudad de México\'
+};
+var destino = \'\';
+var titleLower = entityTitle.toLowerCase();
+for (var city in destinoMap) {
+    if (titleLower.indexOf(city) > -1) { destino = destinoMap[city]; break; }
+}
+if (!destino) {
+    var colonIdx = entityTitle.indexOf(\':\');
+    if (colonIdx > -1) destino = entityTitle.substring(0, colonIdx).trim();
+}
+
+
+            reviews.push({
+                id:            reviewId,
+                productCode:   \'\',
+                entityTitle:   entityTitle,
+                agencia:       agencia,
+                rating:        ratingVal,
+                calificacion:  calificacion,
+                nps:           nps,
+                tipoServicio:  tipoServicio,
+                reviewDate:    reviewDate,
+                reviewTitle:   reviewTitle,
+                reviewContent: reviewContent,
+                reviewerName:  reviewerName,
+                areaCorrespondiente: \'Tour\',
+                destino: destino
+            });
+        }
+
+        return JSON.stringify({
+            pageCount:     -1,
+            currentPage:   -1,
+           reachedCutoff: (reviews.length === 0 && cards.length > 0) ? \'YES\' : \'NO\',
+            reviewCount:   reviews.length,
+            reviews:       reviews
+        });
+
+    } catch(e) {
+        return \'ERROR: \' + e.message;
+    }
+}
+''' Result=> JavaScriptResult
+        Variables.ConvertJsonToCustomObject Json: JavaScriptResult CustomObject=> PageData
+        LOOP FOREACH Review IN PageData['reviews']
+            Variables.AddItemToList Item: Review List: AllReviews
+        END
+        IF PageData['reachedCutoff'] = $'''YES''' THEN
+            EXIT LOOP
+        END
+    END
+END
+Display.ShowMessageDialog.ShowMessage Title: $'''Scrape Complete''' Message: $'''Collected %AllReviews.Count% reviews. Click OK to write to Excel.''' Icon: Display.Icon.None Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed2
+Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: $'''C:\\AT-Reviews\\Viator_Reviews_2026.xlsm''' Visible: True ReadOnly: False UseMachineLocale: False Instance=> ExcelInstance
+Excel.SetActiveWorksheet.ActivateWorksheetByName Instance: ExcelInstance Name: TargetSheet
+Excel.GetFirstFreeRowOnColumn Instance: ExcelInstance Column: $'''A''' FirstFreeRowOnColumn=> FirstFreeRow
+SET NewRowCount TO AllReviews.Count
+LOOP InsertLoopIndex FROM 1 TO NewRowCount STEP 1
+    Excel.InsertRow Instance: ExcelInstance Index: 2
+END
+SET ExcelRow TO 2
+LOOP FOREACH Review IN AllReviews
+    SET TourTitle TO Review['entityTitle']
+    SET Destino TO $''''''
+    # 1. DETERMINE DESTINATION
+    IF Contains(TourTitle, $'''London''', False) OR Contains(TourTitle, $'''Londres''', False) THEN
+        SET Destino TO $'''Londres'''
+    END
+    IF Contains(TourTitle, $'''Amsterdam''', False) THEN
+        SET Destino TO $'''AmsterDam'''
+    END
+    IF Contains(TourTitle, $'''Barcelona''', False) THEN
+        SET Destino TO $'''Barcelona'''
+    END
+    IF Contains(TourTitle, $'''Madrid''', False) THEN
+        SET Destino TO $'''Madrid'''
+    END
+    IF Contains(TourTitle, $'''Rome''', False) OR Contains(TourTitle, $'''Roma''', False) THEN
+        SET Destino TO $'''Roma'''
+    END
+    IF Contains(TourTitle, $'''Paris''', False) THEN
+        SET Destino TO $'''Paris'''
+    END
+    IF Contains(TourTitle, $'''Milan''', False) THEN
+        SET Destino TO $'''Milan'''
+    END
+    IF Contains(TourTitle, $'''New York''', False) OR Contains(TourTitle, $'''NYC''', False) THEN
+        SET Destino TO $'''Nueva York'''
+    END
+    IF Contains(TourTitle, $'''Granada''', False) THEN
+        SET Destino TO $'''Granada'''
+    END
+    IF Contains(TourTitle, $'''Seville''', False) OR Contains(TourTitle, $'''Sevilla''', False) THEN
+        SET Destino TO $'''Sevilla'''
+    END
+    IF Contains(TourTitle, $'''Florence''', False) OR Contains(TourTitle, $'''Firenze''', False) THEN
+        SET Destino TO $'''Florencia'''
+    END
+    IF Contains(TourTitle, $'''Venice''', False) OR Contains(TourTitle, $'''Venezia''', False) THEN
+        SET Destino TO $'''Venecia'''
+    END
+    IF Contains(TourTitle, $'''Tokyo''', False) THEN
+        SET Destino TO $'''Tokyo'''
+    END
+    IF Contains(TourTitle, $'''Kyoto''', False) THEN
+        SET Destino TO $'''Kyoto'''
+    END
+    IF Contains(TourTitle, $'''Osaka''', False) THEN
+        SET Destino TO $'''Osaka'''
+    END
+    IF Contains(TourTitle, $'''Cancun''', False) OR Contains(TourTitle, $'''Cancún''', False) THEN
+        SET Destino TO $'''Cancun'''
+    END
+    IF Contains(TourTitle, $'''Mexico City''', False) OR Contains(TourTitle, $'''Ciudad de Mexico''', False) OR Contains(TourTitle, $'''CDMX''', False) THEN
+        SET Destino TO $'''Ciudad de Mexico'''
+    END
+    IF Contains(TourTitle, $'''Toledo''', False) OR Contains(TourTitle, $'''Segovia''', False) THEN
+        SET Destino TO $'''Toledo y Segovia'''
+    END
+    IF Destino = $'''''' THEN
+        SET Destino TO Review['destino']
+    END
+    # 2. STANDARDIZE TOUR TITLES
+    IF Contains(TourTitle, $'''Andorra, France & Spain''', False) THEN
+        SET TourTitle TO $'''Andorra y Francia desde Barcelona'''
+    END
+    IF Contains(TourTitle, $'''NYC Highlights Tour''', False) THEN
+        SET TourTitle TO $'''Contrastes de NY'''
+    END
+    IF Contains(TourTitle, $'''Statue of Liberty Tour with Ellis Island''', False) THEN
+        SET TourTitle TO $'''Estatua de la Libertad (Guiado)'''
+    END
+    IF Contains(TourTitle, $'''Two-Day Combo: Niagara Falls and Washington''', False) THEN
+        SET TourTitle TO $'''Combo: Niagará & Washington DC en 2 días'''
+    END
+    IF Contains(TourTitle, $'''Niagara Falls 1-Day Tour from NYC''', False) THEN
+        SET TourTitle TO $'''Cataratas del Niágara'''
+    END
+    IF Contains(TourTitle, $'''Washington DC & Philadelphia 1-Day''', False) THEN
+        SET TourTitle TO $'''Washington DC y Filadelfia'''
+    END
+    IF Contains(TourTitle, $'''London: Guided Tour Westminster Abbey''', False) THEN
+        SET TourTitle TO $'''Westminster y Parlamento de Londres'''
+    END
+    IF Contains(TourTitle, $'''Private Tour to Westminster Abbey''', False) THEN
+        SET TourTitle TO $'''Westminster y Parlamento de Londres PRIVADO'''
+    END
+    # 3. WRITE TO EXCEL
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''SI''' Column: $'''A''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['agencia'] Column: $'''B''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['reviewerName'] Column: $'''C''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['id'] Column: $'''D''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Destino Column: $'''E''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['tipoServicio'] Column: $'''F''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: TourTitle Column: $'''G''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['reviewDate'] Column: $'''H''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['calificacion'] Column: $'''J''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['rating'] Column: $'''K''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['areaCorrespondiente'] Column: $'''L''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['reviewContent'] Column: $'''Q''' Row: ExcelRow
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Review['nps'] Column: $'''R''' Row: ExcelRow
+    Variables.IncreaseVariable Value: ExcelRow IncrementValue: 1
+END
+Excel.SaveExcel.Save Instance: ExcelInstance

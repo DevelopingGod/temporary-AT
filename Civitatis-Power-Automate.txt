@@ -1,0 +1,199 @@
+SET DaysBack TO 60
+Display.SelectFromListDialog.SelectFromList Title: $'''Civitatis Region''' Message: $'''Which region is this listado.xls for?''' List: $'''LATAM
+EUR_NY
+JAP''' IsTopMost: False AllowEmpty: False SelectedItem=> SheetRegion SelectedIndex=> RegionIndex ButtonPressed=> ButtonPressedRegion
+DateTime.GetCurrentDateTime.Local DateTimeFormat: DateTime.DateTimeFormat.DateAndTime CurrentDateTime=> CurrentDateTime
+Text.ConvertDateTimeToText.FromDateTime DateTime: CurrentDateTime StandardFormat: Text.WellKnownDateTimeFormat.SortableDateTime Result=> CurrentDateStr
+Text.GetSubtext.GetSubtext Text: CurrentDateStr CharacterPosition: 0 NumberOfChars: 10 Subtext=> EndDateString
+DateTime.Add DateTime: CurrentDateTime TimeToAdd: $'''-%DaysBack%''' TimeUnit: DateTime.TimeUnit.Days ResultedDate=> StartDate
+Text.ConvertDateTimeToText.FromDateTime DateTime: StartDate StandardFormat: Text.WellKnownDateTimeFormat.SortableDateTime Result=> StartDateStr
+Text.GetSubtext.GetSubtext Text: StartDateStr CharacterPosition: 0 NumberOfChars: 10 Subtext=> StartDateString
+SWITCH CurrentDateTime.Month
+    CASE = 1
+        SET MonthCode TO $'''ENE'''
+    CASE = 2
+        SET MonthCode TO $'''FEB'''
+    CASE = 3
+        SET MonthCode TO $'''MAR'''
+    CASE = 4
+        SET MonthCode TO $'''ABR'''
+    CASE = 5
+        SET MonthCode TO $'''MAY'''
+    CASE = 6
+        SET MonthCode TO $'''JUN'''
+    CASE = 7
+        SET MonthCode TO $'''JUL'''
+    CASE = 8
+        SET MonthCode TO $'''AGO'''
+    CASE = 9
+        SET MonthCode TO $'''SEP'''
+    CASE = 10
+        SET MonthCode TO $'''OCT'''
+    CASE = 11
+        SET MonthCode TO $'''NOV'''
+    CASE = 12
+        SET MonthCode TO $'''DIC'''
+END
+SET TargetSheet TO $'''%MonthCode%_%SheetRegion%'''
+SET TotalWritten TO 0
+Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: $'''C:\\AT-Reviews\\Viator_Reviews_2026.xlsm''' Visible: True ReadOnly: False UseMachineLocale: False Instance=> ExcelInstance
+Excel.SetActiveWorksheet.ActivateWorksheetByName Instance: ExcelInstance Name: TargetSheet
+Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: $'''C:\\AT-Reviews\\listado.xls''' Visible: True ReadOnly: False UseMachineLocale: False Instance=> SourceExcel
+Excel.GetFirstFreeColumnRow Instance: SourceExcel FirstFreeColumn=> FirstFreeCol FirstFreeRow=> FirstFreeRow
+SET LastDataRow TO FirstFreeRow - 1
+# Only read data if there is actual data below row 4
+IF LastDataRow >= 5 THEN
+    Excel.ReadFromExcel.ReadCells Instance: SourceExcel StartColumn: 1 StartRow: 5 EndColumn: 5 EndRow: LastDataRow GetCellContentsMode: Excel.GetCellContentsMode.TypedValues FirstLineIsHeader: False RangeValue=> CivitatiData
+    Excel.CloseExcel.Close Instance: SourceExcel
+    LOOP FOREACH Row IN CivitatiData
+        SET CivDateRaw TO Row['Column2']
+        # Protect the Date converter: Skip blank rows and header rows
+        IF CivDateRaw <> $'''''' THEN
+            IF CivDateRaw <> $'''Fecha''' THEN
+                SET Nota TO Row['Column4']
+                IF Nota >= 1 THEN
+                    SET ReviewId TO Row['Column1']
+                    SET ProductName TO Row['Column3']
+                    SET CommentText TO Row['Column5']
+                    Text.ConvertDateTimeToText.FromDateTime DateTime: CivDateRaw StandardFormat: Text.WellKnownDateTimeFormat.SortableDateTime Result=> CivDateStr
+                    Text.GetSubtext.GetSubtext Text: CivDateStr CharacterPosition: 0 NumberOfChars: 10 Subtext=> ReviewDateShort
+                    IF ReviewDateShort >= StartDateString THEN
+                        SET Calificacion TO Nota
+                        SET RatingValue TO Nota / 2
+                        SET NPS TO $'''Detractor'''
+                        IF Nota >= 9 THEN
+                            SET NPS TO $'''Promotor'''
+                        END
+                        IF Nota >= 7 THEN
+                            IF Nota < 9 THEN
+                                SET NPS TO $'''Pasivo'''
+                            END
+                        END
+                        SET TipoServicio TO $'''Tour'''
+                        IF Contains(ProductName, $'''Ticket''', False) THEN
+                            SET TipoServicio TO $'''Ticket'''
+                        END
+                        # --- 1. DETERMINE DESTINATION ---
+                        SET Destino TO $''''''
+                        IF Contains(ProductName, $'''London''', False) OR Contains(ProductName, $'''Londres''', False) THEN
+                            SET Destino TO $'''Londres'''
+                        END
+                        IF Contains(ProductName, $'''Amsterdam''', False) THEN
+                            SET Destino TO $'''AmsterDam'''
+                        END
+                        IF Contains(ProductName, $'''Barcelona''', False) THEN
+                            SET Destino TO $'''Barcelona'''
+                        END
+                        IF Contains(ProductName, $'''Madrid''', False) THEN
+                            SET Destino TO $'''Madrid'''
+                        END
+                        IF Contains(ProductName, $'''Rome''', False) OR Contains(ProductName, $'''Roma''', False) THEN
+                            SET Destino TO $'''Roma'''
+                        END
+                        IF Contains(ProductName, $'''Paris''', False) THEN
+                            SET Destino TO $'''Paris'''
+                        END
+                        IF Contains(ProductName, $'''Milan''', False) THEN
+                            SET Destino TO $'''Milan'''
+                        END
+                        IF Contains(ProductName, $'''New York''', False) OR Contains(ProductName, $'''NYC''', False) THEN
+                            SET Destino TO $'''Nueva York'''
+                        END
+                        IF Contains(ProductName, $'''Granada''', False) THEN
+                            SET Destino TO $'''Granada'''
+                        END
+                        IF Contains(ProductName, $'''Seville''', False) OR Contains(ProductName, $'''Sevilla''', False) THEN
+                            SET Destino TO $'''Sevilla'''
+                        END
+                        IF Contains(ProductName, $'''Florence''', False) OR Contains(ProductName, $'''Firenze''', False) THEN
+                            SET Destino TO $'''Florencia'''
+                        END
+                        IF Contains(ProductName, $'''Venice''', False) OR Contains(ProductName, $'''Venezia''', False) THEN
+                            SET Destino TO $'''Venecia'''
+                        END
+                        IF Contains(ProductName, $'''Tokyo''', False) THEN
+                            SET Destino TO $'''Tokyo'''
+                        END
+                        IF Contains(ProductName, $'''Kyoto''', False) THEN
+                            SET Destino TO $'''Kyoto'''
+                        END
+                        IF Contains(ProductName, $'''Osaka''', False) THEN
+                            SET Destino TO $'''Osaka'''
+                        END
+                        IF Contains(ProductName, $'''Cancun''', False) OR Contains(ProductName, $'''Cancún''', False) THEN
+                            SET Destino TO $'''Cancun'''
+                        END
+                        IF Contains(ProductName, $'''Mexico City''', False) OR Contains(ProductName, $'''Ciudad de Mexico''', False) OR Contains(ProductName, $'''CDMX''', False) THEN
+                            SET Destino TO $'''Ciudad de Mexico'''
+                        END
+                        IF Contains(ProductName, $'''Toledo''', False) OR Contains(ProductName, $'''Segovia''', False) THEN
+                            SET Destino TO $'''Toledo y Segovia'''
+                        END
+                        IF Destino = $'''''' THEN
+                            SET Destino TO ProductName
+                        END
+                        # --- 2. STANDARDIZE TOUR TITLES ---
+                        IF Contains(ProductName, $'''Andorra, France & Spain''', False) THEN
+                            SET ProductName TO $'''Andorra y Francia desde Barcelona'''
+                        END
+                        IF Contains(ProductName, $'''NYC Highlights Tour''', False) THEN
+                            SET ProductName TO $'''Contrastes de NY'''
+                        END
+                        IF Contains(ProductName, $'''Statue of Liberty Tour with Ellis Island''', False) THEN
+                            SET ProductName TO $'''Estatua de la Libertad (Guiado)'''
+                        END
+                        IF Contains(ProductName, $'''Two-Day Combo: Niagara Falls and Washington''', False) THEN
+                            SET ProductName TO $'''Combo: Niagará & Washington DC en 2 días'''
+                        END
+                        IF Contains(ProductName, $'''Niagara Falls 1-Day Tour from NYC''', False) THEN
+                            SET ProductName TO $'''Cataratas del Niágara'''
+                        END
+                        IF Contains(ProductName, $'''Washington DC & Philadelphia 1-Day''', False) THEN
+                            SET ProductName TO $'''Washington DC y Filadelfia'''
+                        END
+                        IF Contains(ProductName, $'''London: Guided Tour Westminster Abbey''', False) THEN
+                            SET ProductName TO $'''Westminster y Parlamento de Londres'''
+                        END
+                        IF Contains(ProductName, $'''Private Tour to Westminster Abbey''', False) THEN
+                            SET ProductName TO $'''Westminster y Parlamento de Londres PRIVADO'''
+                        END
+                        IF Contains(ProductName, $'''從米蘭出發，乘坐火車前往威尼斯和維羅納一日遊''', False) THEN
+                            SET ProductName TO $'''Venecia y Verona desde Milán'''
+                        END
+                        IF Contains(ProductName, $'''托雷多與塞哥維亞歷史名城之旅''', False) THEN
+                            SET ProductName TO $'''Toledo y Segovia desde Madrid'''
+                        END
+                        # --- 3. WRITE TO EXCEL ---
+                        Excel.GetFirstFreeRowOnColumn Instance: ExcelInstance Column: $'''A''' FirstFreeRowOnColumn=> ExcelRow
+                        Excel.InsertRow Instance: ExcelInstance Index: 2
+                        SET ExcelRow TO 2
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''SI''' Column: $'''A''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''Civitatis''' Column: $'''B''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''Anonymous''' Column: $'''C''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ReviewId Column: $'''D''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Destino Column: $'''E''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: TipoServicio Column: $'''F''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ProductName Column: $'''G''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: ReviewDateShort Column: $'''H''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: Calificacion Column: $'''J''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: RatingValue Column: $'''K''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: $'''Tour''' Column: $'''L''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: CommentText Column: $'''Q''' Row: ExcelRow
+                        Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: NPS Column: $'''R''' Row: ExcelRow
+                        SET TotalWritten TO TotalWritten + 1
+                    END
+                END
+            END
+        END
+    END
+ELSE
+    Excel.CloseExcel.Close Instance: SourceExcel
+END
+Excel.SaveExcel.Save Instance: ExcelInstance
+IF TotalWritten = 0 THEN
+    Display.ShowMessageDialog.ShowMessage Title: $'''No New Reviews''' Message: $'''No new Civitatis reviews found in the last %DaysBack% days.
+Nothing was written to Excel.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed
+ELSE
+    Display.ShowMessageDialog.ShowMessage Title: $'''Done!''' Message: $'''Civitatis reviews written: %TotalWritten%
+All saved to Excel successfully.''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed
+END
